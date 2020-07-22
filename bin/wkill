@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+
+#-----------------#
+# GET SCRIPT NAME #
+#-----------------#
+name=${0##*/}
+
+#-----------#
+# ERROR MSG #
+#-----------#
+die(){ printf "%s: %b\n" "${name^}" "$@" >&2 && exit 2 ;}
+
+#----------------------------------------#
+# GET THE LIST OF WINDOWS AND WORKSPACES #
+#----------------------------------------#
+while read -ra line ; do
+    WM_LIST[${line[1]}]+="${line[0]} "
+done < <(wmctrl -l)
+
+#------------------#
+# KILL ALL WINDOWS #
+#------------------#
+_all_(){
+    for i in ${WM_LIST[@]} ; do
+        wmctrl -i -c "$i"
+    done
+}
+
+#---------------------------------------#
+# KILL ALL WINDOWS IN CURRENT WORKSPACE #
+#---------------------------------------#
+_current_(){
+	local line
+while read -ra line ; do
+	[ "${line[1]}" = "*" ] && {
+		for i in ${WM_LIST[${line[0]}]} ; {
+            wmctrl -i -c $i
+        }
+	}
+done < <(wmctrl -d)
+}
+
+#---------------------------------------------#
+# KILL ALL WINDOW IN WORKSPACE NAME OR NUMBER #
+#---------------------------------------------#
+_workspace_(){
+	local line number found_it
+while read -ra line ; do
+	number=$((${line[0]}+1))
+	[ "$WORKSPACE" = "$number" ] || [ "$WORKSPACE" = "${line[@]:8}" ] && {
+		for i in ${WM_LIST[${line[0]}]} ; { wmctrl -i -c $i ;}
+		found_it=true
+	}
+done < <(wmctrl -d)
+
+[ "$found_it" ] || die "'$WORKSPACE' No Workspace Found."
+}
+
+#----------------#
+# SELECT WINDOWS #
+#----------------#
+Select(){
+	local line number
+
+    # get rename variable depands on script name
+    [ $(eval "echo \$${name^^}_SELECT") ] || eval "${name^^}_SELECT=\"dmenu -p Select  -l 5\""
+
+while read -ra line ; do
+	number=$((${line[0]}+1))
+	WM_NAME[$number]+="${line[@]:8}"
+done< <(wmctrl -d)
+
+read -ra resoult < <(
+{ while read -ra line ;do
+	number=$((${line[1]}+1))
+	echo "[${WM_NAME[$((${line[1]}+1))]}]; ${line[0]} - ${line[*]:3}"
+done< <(wmctrl -l)
+} | column -s ";" -t | eval "\$${name^^}_SELECT" )
+
+wmctrl -i -c "${resoult[1]}" 2> /dev/null
+}
+
+#-------------#
+# HELP DIALOG #
+#-------------#
+_help_(){
+while read ; do
+    printf "%b\n" "$REPLY"
+done <<- HELP
+${name^^} window killer shot
+Usage: ${name} [OPTIONS] [WORKSPACE]
+
+OPTIONS:
+    -a      : Kill all windows in all workspaces
+    -c      : Kill all windows in current workspace
+    -w <WK> : Kill all windows in workspace (ACCEPT WORKSPACE NAME OR NUMBER)
+    -s	    : Select the window you want to kill
+    -h      : Show this helo dialog
+
+VARIABLES:
+    ${name^^}_SELECT
+        Command for (-s) Select option. default [dmenu -p "Select:"]
+
+NOTE:
+    Export ${name^^} Variables before using them
+HELP
+}
+
+#---------------#
+# MAIN FUNCTION #
+#---------------#
+_main_(){
+while getopts ":acw:sh" OPT ; do
+	case "$OPT" in
+		a )
+			ALL=true
+			;;
+		c )
+			CURRENT=true
+			;;
+		w )
+			WORKSPACE="${OPTARG}"
+			;;
+		s )
+			SELECT=true
+			;;
+		h )
+			HELP=true
+			;;
+		: )
+			 die "option requires an argument -- '$OPTARG' \ntry '$name -h' for more information."
+			;;
+		* )
+			 die "invalid option -- '$OPTARG' \ntry '$name -h' for more information."
+			;;
+	esac
+done
+}
+
+#------------------------#
+# CALL THE MAIN FUNCTION #
+#------------------------#
+_main_ "$@"
+
+#----------------------#
+# CALL FOR USE OPTIONS #
+#----------------------#
+[ "$((${#ALL[@]} + ${#CURRENT[@]} + ${#WORKSPACE[@]} + ${#SELECT[@]}))" -gt 1 ] && die "no Multi task allowed. \ntry '$name -h' for more information."
+[ "$HELP" ]		 && _help_		|| true
+[ "$ALL" ]		 && _all_		|| true
+[ "$CURRENT" ]	 && _current_	|| true
+[ "$WORKSPACE" ] && _workspace_	|| true
+[ "$SELECT" ]	 && Select		|| true
